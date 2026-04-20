@@ -4,6 +4,18 @@
 metadata:
   version: 2.0
 
+# This section describes the Deployments of the data pipeline
+deployments:
+  - name: QuixLakeSinkEventCaller
+    application: quixlakesinkeventcaller
+    version: latest
+    deploymentType: Service
+    resources:
+      cpu: 200
+      memory: 500
+      replicas: 1
+    blobStorage:
+      bind: true
 
 # This section describes the Topics of the data pipeline
 topics:
