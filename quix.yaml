@@ -32,7 +32,7 @@ deployments:
     variables:
       - name: output
         inputType: OutputTopic
-        value: tsbs_data_transformed
+        value: timeouted-data
       - name: STREAM_FINISHED_TIMEOUT_MS
         inputType: FreeText
         value: "10000"
