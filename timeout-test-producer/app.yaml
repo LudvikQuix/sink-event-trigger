@@ -45,6 +45,6 @@ variables:
     description: Python logging level (DEBUG, INFO, WARNING, ERROR)
     defaultValue: "INFO"
     required: false
-dockerfile: timeout-test-producer/dockerfile
-runEntryPoint: timeout-test-producer/main.py
-defaultFile: timeout-test-producer/main.py
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
