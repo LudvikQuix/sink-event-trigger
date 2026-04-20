@@ -20,6 +20,44 @@ deployments:
     blobStorage:
       bind: true
 
+  - name: Timeout Test Producer
+    application: timeout-test-producer
+    version: latest
+    deploymentType: Service
+    desiredStatus: Stopped
+    resources:
+      cpu: 200
+      memory: 200
+      replicas: 1
+    variables:
+      - name: output
+        inputType: OutputTopic
+        value: tsbs_data_transformed
+      - name: STREAM_FINISHED_TIMEOUT_MS
+        inputType: FreeText
+        value: "10000"
+      - name: COMMIT_INTERVAL_MS
+        inputType: FreeText
+        value: "30000"
+      - name: BURST_SIZE
+        inputType: FreeText
+        value: "20"
+      - name: BURST_INTERVAL_MS
+        inputType: FreeText
+        value: "200"
+      - name: STEADY_INTERVAL_MS
+        inputType: FreeText
+        value: "2500"
+      - name: SAFETY_BUFFER_MS
+        inputType: FreeText
+        value: "2000"
+      - name: LOOP
+        inputType: FreeText
+        value: "false"
+      - name: LOGLEVEL
+        inputType: FreeText
+        value: "INFO"
+
 # This section describes the Topics of the data pipeline
 topics:
   - name: tsbs_data_transformed
