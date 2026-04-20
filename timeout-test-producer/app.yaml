@@ -1,0 +1,50 @@
+name: Timeout Test Producer
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: Topic to publish synthetic timeseries test data to
+    required: true
+  - name: STREAM_FINISHED_TIMEOUT_MS
+    inputType: FreeText
+    description: Silence duration (ms) after which the sink fires on_stream_finished
+    defaultValue: "10000"
+    required: false
+  - name: COMMIT_INTERVAL_MS
+    inputType: FreeText
+    description: Consumer commit interval (ms) — must match sink's commit_interval × 1000
+    defaultValue: "30000"
+    required: false
+  - name: BURST_SIZE
+    inputType: FreeText
+    description: Number of messages per burst
+    defaultValue: "20"
+    required: false
+  - name: BURST_INTERVAL_MS
+    inputType: FreeText
+    description: Delay between messages within a burst (ms)
+    defaultValue: "200"
+    required: false
+  - name: STEADY_INTERVAL_MS
+    inputType: FreeText
+    description: Publish interval for sensor-b steady stream (ms)
+    defaultValue: "2500"
+    required: false
+  - name: SAFETY_BUFFER_MS
+    inputType: FreeText
+    description: Extra buffer added on top of timeout+commit when computing silence duration (ms)
+    defaultValue: "2000"
+    required: false
+  - name: LOOP
+    inputType: FreeText
+    description: Set to "true" to repeat scenarios 1 and 3 forever
+    defaultValue: "false"
+    required: false
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: Python logging level (DEBUG, INFO, WARNING, ERROR)
+    defaultValue: "INFO"
+    required: false
+dockerfile: timeout-test-producer/dockerfile
+runEntryPoint: timeout-test-producer/main.py
+defaultFile: timeout-test-producer/main.py
