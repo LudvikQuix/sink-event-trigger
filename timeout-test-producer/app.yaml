@@ -8,12 +8,12 @@ variables:
   - name: STREAM_FINISHED_TIMEOUT_MS
     inputType: FreeText
     description: Silence duration (ms) after which the sink fires on_stream_finished
-    defaultValue: "10000"
+    defaultValue: "5000"
     required: false
   - name: COMMIT_INTERVAL_MS
     inputType: FreeText
     description: Consumer commit interval (ms) — must match sink's COMMIT_INTERVAL (seconds) × 1000. Sink default is now 5 s.
-    defaultValue: "5000"
+    defaultValue: "1000"
     required: false
   - name: BURST_SIZE
     inputType: FreeText

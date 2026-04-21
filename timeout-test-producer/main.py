@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-STREAM_FINISHED_TIMEOUT_MS = int(os.environ.get("STREAM_FINISHED_TIMEOUT_MS", "10000"))
-COMMIT_INTERVAL_MS = int(os.environ.get("COMMIT_INTERVAL_MS", "30000"))
+STREAM_FINISHED_TIMEOUT_MS = int(os.environ.get("STREAM_FINISHED_TIMEOUT_MS", "5000"))
+COMMIT_INTERVAL_MS = int(os.environ.get("COMMIT_INTERVAL_MS", "1000"))
 BURST_SIZE = int(os.environ.get("BURST_SIZE", "20"))
 BURST_INTERVAL_MS = int(os.environ.get("BURST_INTERVAL_MS", "200"))
 STEADY_INTERVAL_MS = int(os.environ.get("STEADY_INTERVAL_MS", str(STREAM_FINISHED_TIMEOUT_MS // 4)))
