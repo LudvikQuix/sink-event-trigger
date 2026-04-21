@@ -47,7 +47,7 @@ def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) ->
     logger.info("[%s] STEADY START — interval %.1f s", stream_id, STEADY_INTERVAL_MS / 1000)
     i = 0
     while not stop_event.is_set():
-        payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
+        payload = {"ts_ms": _now_ms(), "value": float(i), "name": stream_id}
         msg = topic.serialize(key=stream_id, value=payload)
         producer.produce(topic=topic.name, value=msg.value, key=msg.key)
         i += 1
