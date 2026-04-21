@@ -80,17 +80,20 @@ if stream_timeout_topic_name:
     stream_timeout_ms = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "60")) * 1000
     stream_timeout_topic = app.topic(stream_timeout_topic_name)
 
-    def on_stream_timeout(key: str) -> None:
-        """Timeout handler for inactive streams.
+    def on_stream_timeout(stream: str) -> None:
+        """Timeout handler for the whole input stream.
 
-        Logs and produces one message to STREAM_TIMEOUT_TOPIC with the shape
-        value={"key": key, "event": "timeout"} (spec §7.2).
+        The sink passes the stream designation (the input topic name it is
+        attached to) once the whole stream has been silent past the
+        threshold. Logs INFO and produces one Kafka message to
+        STREAM_TIMEOUT_TOPIC with the shape
+        value={"stream": stream, "event": "timeout"} (spec §7.2).
         """
-        logger.info("Stream %s timed out after inactivity", key)
+        logger.info("Stream %s timed out after inactivity", stream)
         side_producer.produce(
             topic=stream_timeout_topic.name,
-            key=key.encode() if isinstance(key, str) else key,
-            value=json.dumps({"key": key, "event": "timeout"}).encode(),
+            key=stream.encode() if isinstance(stream, str) else stream,
+            value=json.dumps({"stream": stream, "event": "timeout"}).encode(),
         )
 else:
     stream_timeout_ms = None
