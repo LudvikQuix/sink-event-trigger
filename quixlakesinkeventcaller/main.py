@@ -70,11 +70,11 @@ workspace_id = os.getenv("Quix__Workspace__Id", "")
 
 # Parse STREAM_FINISHED_CONFIG — a JSON array of
 #   {"key": <str>, "timeout_ms": <int>, "func": <str>}
-# that resolves each func name against CALLBACKS. Empty array → feature
-# disabled (sink treats {} as "disabled" per spec §6.1). Any validation
+# that resolves each func name against CALLBACKS. Empty / unset / whitespace-only
+# → feature disabled (sink treats {} as "disabled" per spec §6.1). Any validation
 # error is surfaced as a single ERROR log and SystemExit(1) so the
 # container fails loud at startup rather than silently dropping tracking.
-raw_stream_finished_config = os.environ.get("STREAM_FINISHED_CONFIG", "[]")
+raw_stream_finished_config = os.environ.get("STREAM_FINISHED_CONFIG", "").strip() or "[]"
 stream_finished: dict = {}
 try:
     entries = json.loads(raw_stream_finished_config)
