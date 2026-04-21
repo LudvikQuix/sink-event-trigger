@@ -35,6 +35,8 @@ deployments:
     variables:
       - name: output
         value: timeouted-data
+      - name: COMMIT_INTERVAL_MS
+        value: 1000
 
 # This section describes the Topics of the data pipeline
 topics:
