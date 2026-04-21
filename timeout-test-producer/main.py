@@ -30,30 +30,18 @@ LOOP = os.environ.get("LOOP", "false").strip().lower() == "true"
 #   stream_finished_timeout + commit_interval + safety_buffer
 SILENCE_DURATION_MS = STREAM_FINISHED_TIMEOUT_MS + COMMIT_INTERVAL_MS + SAFETY_BUFFER_MS
 
+# Warm-up: how long all streams run before stopping together
+WARM_UP_MS = int(os.environ.get("WARM_UP_MS", str(STREAM_FINISHED_TIMEOUT_MS // 2)))
+
+STREAM_IDS = ["sensor-a", "sensor-b", "sensor-c", "sensor-d"]
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _produce_burst(producer, topic, stream_id: str, burst_size: int) -> None:
-    """Produce burst_size messages on the given stream key."""
-    logger.info("[%s] BURST START — producing %d messages", stream_id, burst_size)
-    for i in range(burst_size):
-        payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
-        msg = topic.serialize(key=stream_id, value=payload)
-        producer.produce(topic=topic.name, value=msg.value, key=msg.key)
-        time.sleep(BURST_INTERVAL_MS / 1000)
-    logger.info("[%s] BURST END — %d messages produced", stream_id, burst_size)
-
-
-def _pause(label: str, duration_ms: int) -> None:
-    logger.info("[%s] PAUSE START — sleeping %.1f s", label, duration_ms / 1000)
-    time.sleep(duration_ms / 1000)
-    logger.info("[%s] PAUSE END", label)
-
-
 # ---------------------------------------------------------------------------
-# Steady-stream helper — used by sensor-b (unregistered) and sensor-d (registered-but-alive)
+# Steady-stream helper
 # ---------------------------------------------------------------------------
 def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) -> None:
     logger.info("[%s] STEADY START — interval %.1f s", stream_id, STEADY_INTERVAL_MS / 1000)
@@ -67,38 +55,32 @@ def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) ->
     logger.info("[%s] STEADY STOP", stream_id)
 
 
-# ---------------------------------------------------------------------------
-# Scenario 1 — sensor-a (idle fire)
-# ---------------------------------------------------------------------------
-def run_scenario_1(producer, topic) -> None:
-    stream_id = "sensor-a"
-    logger.info("===== SCENARIO 1 START: %s (idle fire) =====", stream_id)
-    _produce_burst(producer, topic, stream_id, BURST_SIZE)
-    _pause(stream_id, SILENCE_DURATION_MS)
-    logger.info("===== SCENARIO 1 END: %s — expect ONE on_stream_finished callback =====", stream_id)
+def _start_all(producer, topic) -> tuple[list[threading.Thread], list[threading.Event]]:
+    """Start all 4 steady-stream threads. Returns (threads, stop_events)."""
+    stop_events = [threading.Event() for _ in STREAM_IDS]
+    threads = [
+        threading.Thread(
+            target=_run_steady,
+            args=(producer, topic, stream_id, stop_event),
+            daemon=True,
+            name=f"steady-{stream_id}",
+        )
+        for stream_id, stop_event in zip(STREAM_IDS, stop_events)
+    ]
+    for t in threads:
+        t.start()
+    logger.info("ALL STREAMS STARTED: %s", STREAM_IDS)
+    return threads, stop_events
 
 
-# ---------------------------------------------------------------------------
-# Scenario 3 — sensor-c (re-activation: burst → silence → burst → silence)
-# ---------------------------------------------------------------------------
-def run_scenario_3(producer, topic) -> None:
-    stream_id = "sensor-c"
-    logger.info("===== SCENARIO 3 START: %s (re-activation) =====", stream_id)
-
-    logger.info("[%s] PHASE 1 — first burst", stream_id)
-    _produce_burst(producer, topic, stream_id, BURST_SIZE)
-    logger.info("[%s] PHASE 1 — pause (expect fire #1)", stream_id)
-    _pause(stream_id, SILENCE_DURATION_MS)
-
-    logger.info("[%s] PHASE 2 — second burst (re-activation)", stream_id)
-    _produce_burst(producer, topic, stream_id, BURST_SIZE)
-    logger.info("[%s] PHASE 2 — pause (expect fire #2)", stream_id)
-    _pause(stream_id, SILENCE_DURATION_MS)
-
-    logger.info(
-        "===== SCENARIO 3 END: %s — expect TWO on_stream_finished callbacks =====",
-        stream_id,
-    )
+def _stop_all(stop_events: list[threading.Event], threads: list[threading.Thread]) -> None:
+    """Signal all streams to stop and wait for them to finish."""
+    logger.info("ALL STREAMS STOPPING — setting stop events for: %s", STREAM_IDS)
+    for ev in stop_events:
+        ev.set()
+    for t in threads:
+        t.join()
+    logger.info("ALL STREAMS STOPPED")
 
 
 # ---------------------------------------------------------------------------
@@ -114,40 +96,43 @@ def main() -> None:
         key_serializer="string",
     )
 
-    stop_b = threading.Event()
-    stop_d = threading.Event()
-
     with app.get_producer() as producer:
-        # Scenario 2 — sensor-b (steady, NOT registered in consumer → no fire expected)
-        thread_b = threading.Thread(
-            target=_run_steady,
-            args=(producer, topic, "sensor-b", stop_b),
-            daemon=True,
-            name="steady-sensor-b",
-        )
-        # Scenario 4 — sensor-d (steady, REGISTERED in consumer → never fires because alive)
-        thread_d = threading.Thread(
-            target=_run_steady,
-            args=(producer, topic, "sensor-d", stop_d),
-            daemon=True,
-            name="steady-sensor-d",
-        )
-        thread_b.start()
-        thread_d.start()
+        # --- Initial warm-up: start all 4 streams together ---
+        threads, stop_events = _start_all(producer, topic)
+        logger.info("WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
+        time.sleep(WARM_UP_MS / 1000)
 
-        if LOOP:
-            logger.info("LOOP=true — running scenarios 1 & 3 in a loop; sensor-b and sensor-d run continuously")
-            while True:
-                run_scenario_1(producer, topic)
-                run_scenario_3(producer, topic)
-                logger.info("Loop iteration complete — sleeping 5 s before next iteration")
-                time.sleep(5)
-        else:
-            run_scenario_1(producer, topic)
-            run_scenario_3(producer, topic)
-            logger.info("ALL SCENARIOS COMPLETE — stopping sensor-b and sensor-d")
-            stop_b.set()
-            stop_d.set()
+        while True:
+            # Step 3: Stop ALL 4 streams simultaneously
+            _stop_all(stop_events, threads)
+
+            # Step 4: Wait silence — sink timeout detection fires for every key
+            logger.info(
+                "SILENCE START — waiting %.1f s (expect timeout events for all 4 keys)",
+                SILENCE_DURATION_MS / 1000,
+            )
+            time.sleep(SILENCE_DURATION_MS / 1000)
+            logger.info("SILENCE END")
+
+            # Step 5: Resume ALL 4 streams simultaneously
+            threads, stop_events = _start_all(producer, topic)
+
+            # Step 6: Another warm-up so messages are visible after resume
+            logger.info("RESUME WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
+            time.sleep(WARM_UP_MS / 1000)
+
+            # Step 7: Stop all again
+            _stop_all(stop_events, threads)
+
+            if not LOOP:
+                logger.info("LOOP=false — exiting after one stop/resume cycle")
+                break
+
+            logger.info("LOOP=true — restarting streams for next cycle")
+            # Restart for next loop iteration
+            threads, stop_events = _start_all(producer, topic)
+            logger.info("LOOP WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
+            time.sleep(WARM_UP_MS / 1000)
 
 
 if __name__ == "__main__":
