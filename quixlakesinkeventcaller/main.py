@@ -11,6 +11,7 @@ automatically from this configuration.
 File paths follow the workspace-aware structure:
     {workspaceId}/data-lake/time-series/{table_name}/...
 """
+import json
 import os
 import logging
 from typing import Optional, Callable
@@ -87,9 +88,9 @@ if stream_timeout_topic_name:
         """
         logger.info("Stream %s timed out after inactivity", key)
         side_producer.produce(
-            stream_timeout_topic,
-            key={"key": key},
-            value={"key": key, "event": "timeout"},
+            topic=stream_timeout_topic.name,
+            key=key.encode() if isinstance(key, str) else key,
+            value=json.dumps({"key": key, "event": "timeout"}).encode(),
         )
 else:
     stream_timeout_ms = None
