@@ -40,12 +40,8 @@ def _produce_burst(producer, topic, stream_id: str, burst_size: int) -> None:
     logger.info("[%s] BURST START — producing %d messages", stream_id, burst_size)
     for i in range(burst_size):
         payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
-        producer.produce(
-            topic=topic.name,
-            key=stream_id,
-            value=payload,
-            timestamp=_now_ms(),
-        )
+        msg = topic.serialize(key=stream_id, value=payload)
+        producer.produce(topic=topic.name, value=msg.value, key=msg.key)
         time.sleep(BURST_INTERVAL_MS / 1000)
     logger.info("[%s] BURST END — %d messages produced", stream_id, burst_size)
 
@@ -64,12 +60,8 @@ def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) ->
     i = 0
     while not stop_event.is_set():
         payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
-        producer.produce(
-            topic=topic.name,
-            key=stream_id,
-            value=payload,
-            timestamp=_now_ms(),
-        )
+        msg = topic.serialize(key=stream_id, value=payload)
+        producer.produce(topic=topic.name, value=msg.value, key=msg.key)
         i += 1
         stop_event.wait(STEADY_INTERVAL_MS / 1000)
     logger.info("[%s] STEADY STOP", stream_id)
