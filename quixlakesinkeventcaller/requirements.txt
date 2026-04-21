@@ -1,4 +1,4 @@
-quixstreams[quixdatalake]>=3.23.3
+quixstreams[quixdatalake] @ git+https://github.com/quixio/quix-streams.git@feature/sc-72221/adding-timeout-based-trigger-in-quixlake-sink
 python-dotenv
 
 # Blob storage support via quixportal (AWS S3, Azure, GCP, MinIO)

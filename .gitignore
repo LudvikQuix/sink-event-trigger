@@ -13,3 +13,15 @@ build/
 .pytest_cache/
 .ruff_cache/
 .env
+
+# Local tooling / IDE
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Design docs / planning (not needed at Quix runtime)
+dev-planning/

@@ -8,6 +8,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Set the working directory inside the container
 WORKDIR /app
 
+# Install git for pip git+ URLs (quixstreams is pulled from a GitHub branch)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy only the requirements file(s) to leverage Docker cache
 # Assuming all requirements files are in the root or subdirectories
 COPY ./requirements.txt ./

@@ -45,7 +45,12 @@ variables:
   - name: COMMIT_INTERVAL
     inputType: FreeText
     description: Kafka commit interval in seconds
-    defaultValue: 30
+    defaultValue: 5
+  - name: STREAM_FINISHED_CONFIG
+    inputType: FreeText
+    description: 'JSON array of {key, timeout_ms, func} entries specifying per-key stream-finished detection. "func" must be a name registered in the CALLBACKS dict in main.py. Empty array disables the feature.'
+    required: false
+    defaultValue: '[]'
   - name: KAFKA_KEY_DESERIALIZER
     inputType: FreeText
     description: The key deserializer to use
