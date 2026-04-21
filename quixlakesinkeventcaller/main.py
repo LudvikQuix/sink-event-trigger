@@ -11,14 +11,12 @@ automatically from this configuration.
 File paths follow the workspace-aware structure:
     {workspaceId}/data-lake/time-series/{table_name}/...
 """
-import json
 import os
 import logging
+from typing import Optional, Callable
 
 from quixstreams import Application
 from quixstreams.sinks.core.quix_ts_datalake_sink import QuixTSDataLakeSink
-
-from callbacks import log_finished
 
 # Configure logging
 logging.basicConfig(
@@ -29,12 +27,6 @@ logger = logging.getLogger(__name__)
 
 # Constant for time-series data lake path structure
 TIMESERIES_PREFIX = "data-lake/time-series"
-
-# Explicit whitelist of callbacks referenceable from STREAM_FINISHED_CONFIG.
-# Add new entries here when introducing a new callback in callbacks.py.
-CALLBACKS = {
-    "log_finished": log_finished,
-}
 
 
 def parse_hive_columns(columns_str: str) -> list:
@@ -52,40 +44,6 @@ def parse_hive_columns(columns_str: str) -> list:
     return [col.strip() for col in columns_str.split(",") if col.strip()]
 
 
-def parse_stream_finished_config(raw: str) -> dict:
-    """Parse STREAM_FINISHED_CONFIG JSON → {key: (timeout_ms, callback)}.
-
-    Empty/unset/whitespace → {} (disabled). Any error → SystemExit(1).
-    """
-    raw = (raw or "").strip() or "[]"
-    result: dict = {}
-    try:
-        entries = json.loads(raw)
-        if not isinstance(entries, list):
-            raise ValueError("must be a JSON array")
-        for i, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                raise ValueError(f"[{i}] must be an object")
-            try:
-                key, timeout_ms, func_name = entry["key"], entry["timeout_ms"], entry["func"]
-            except KeyError as e:
-                raise ValueError(f"[{i}] missing field {e.args[0]!r}") from None
-            if not isinstance(key, str) or not key:
-                raise ValueError(f"[{i}].key must be non-empty string")
-            # bool is an int subclass — reject so `true` doesn't become 1 ms
-            if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or timeout_ms <= 0:
-                raise ValueError(f"[{i}].timeout_ms must be positive int")
-            if func_name not in CALLBACKS:
-                raise ValueError(f"[{i}].func={func_name!r} not in {sorted(CALLBACKS)}")
-            if key in result:
-                raise ValueError(f"duplicate key {key!r}")
-            result[key] = (timeout_ms, CALLBACKS[func_name])
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error("Invalid STREAM_FINISHED_CONFIG: %s", e)
-        raise SystemExit(1)
-    return result
-
-
 # Initialize Quix Streams Application
 app = Application(
     consumer_group=os.getenv("CONSUMER_GROUP", "s3_direct_sink_v1.0"),
@@ -93,6 +51,8 @@ app = Application(
     commit_interval=int(os.getenv("COMMIT_INTERVAL", "5")),
     commit_every=int(os.getenv("BATCH_SIZE", 1000))
 )
+
+side_producer = app.get_producer()
 
 # Parse configuration
 hive_columns = parse_hive_columns(os.getenv("HIVE_COLUMNS", ""))
@@ -102,10 +62,44 @@ table_name = os.getenv("TABLE_NAME") or os.environ["input"]
 # Workspace ID (automatically injected by Quix platform)
 workspace_id = os.getenv("Quix__Workspace__Id", "")
 
-stream_finished = parse_stream_finished_config(os.environ.get("STREAM_FINISHED_CONFIG", ""))
+# ---------------------------------------------------------------------------
+# Stream-timeout wiring (spec §6.7)
+#
+# Both env vars have defaults, so the feature is ON by default:
+#   STREAM_TIMEOUT_SECONDS = 60
+#   STREAM_TIMEOUT_TOPIC   = "timeout-topic"
+# Operators disable explicitly by setting STREAM_TIMEOUT_TOPIC="" (empty string);
+# unset falls through to the default.
+# ---------------------------------------------------------------------------
+stream_timeout_topic_name = os.environ.get("STREAM_TIMEOUT_TOPIC", "timeout-topic").strip()
+stream_timeout_ms: Optional[int]
+on_stream_timeout: Optional[Callable[[str], None]]
+
+if stream_timeout_topic_name:
+    stream_timeout_ms = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "60")) * 1000
+    stream_timeout_topic = app.topic(stream_timeout_topic_name)
+
+    def on_stream_timeout(key: str) -> None:
+        """Timeout handler for inactive streams.
+
+        Logs and produces one message to STREAM_TIMEOUT_TOPIC with the shape
+        value={"key": key, "event": "timeout"} (spec §7.2).
+        """
+        logger.info("Stream %s timed out after inactivity", key)
+        side_producer.produce(
+            stream_timeout_topic,
+            key={"key": key},
+            value={"key": key, "event": "timeout"},
+        )
+else:
+    stream_timeout_ms = None
+    on_stream_timeout = None
 
 logger.info(
-    "Stream-finished tracking: %d key(s) configured", len(stream_finished)
+    "Stream-timeout tracking: %s",
+    f"enabled ({stream_timeout_ms} ms → topic {stream_timeout_topic_name!r})"
+    if stream_timeout_ms is not None
+    else "disabled",
 )
 
 # Initialize QuixLakeSink
@@ -124,7 +118,8 @@ blob_sink = QuixTSDataLakeSink(
     namespace=os.getenv("CATALOG_NAMESPACE", "default"),
     auto_create_bucket=True,
     max_workers=int(os.getenv("MAX_WRITE_WORKERS", "10")),
-    stream_finished=stream_finished,
+    stream_timeout_ms=stream_timeout_ms,
+    on_stream_timeout=on_stream_timeout,
     on_client_connect_success=lambda: print("CONNECTED!"),
     on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
 )

@@ -46,11 +46,16 @@ variables:
     inputType: FreeText
     description: Kafka commit interval in seconds
     defaultValue: 5
-  - name: STREAM_FINISHED_CONFIG
+  - name: STREAM_TIMEOUT_SECONDS
     inputType: FreeText
-    description: 'JSON array of {key, timeout_ms, func} entries specifying per-key stream-finished detection. "func" must be a name registered in the CALLBACKS dict in main.py. Empty array disables the feature.'
+    description: 'Silence threshold in seconds for stream-timeout detection. Any Kafka key that goes silent for at least this long will trigger a timeout event on STREAM_TIMEOUT_TOPIC. Defaults to 60; only applied when STREAM_TIMEOUT_TOPIC is non-empty (which it is by default).'
     required: false
-    defaultValue: '[]'
+    defaultValue: '60'
+  - name: STREAM_TIMEOUT_TOPIC
+    inputType: OutputTopic
+    description: 'Kafka topic that receives one message per silent-stream detection, shaped as value={"key": <key>, "event": "timeout"}. Defaults to "timeout-topic"; set to an empty string to disable the feature.'
+    required: false
+    defaultValue: timeout-topic
   - name: KAFKA_KEY_DESERIALIZER
     inputType: FreeText
     description: The key deserializer to use
