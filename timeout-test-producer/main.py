@@ -41,7 +41,7 @@ def _produce_burst(producer, topic, stream_id: str, burst_size: int) -> None:
     for i in range(burst_size):
         payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
         producer.produce(
-            topic=topic,
+            topic=topic.name,
             key=stream_id,
             value=payload,
             timestamp=_now_ms(),
@@ -65,7 +65,7 @@ def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) ->
     while not stop_event.is_set():
         payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
         producer.produce(
-            topic=topic,
+            topic=topic.name,
             key=stream_id,
             value=payload,
             timestamp=_now_ms(),
