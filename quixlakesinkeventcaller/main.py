@@ -105,6 +105,7 @@ if stream_timeout_topic_name:
             key=stream.encode() if isinstance(stream, str) else stream,
             value=json.dumps({"stream": stream, "event": "timeout"}).encode(),
         )
+        side_producer.flush()
 else:
     stream_timeout_ms = None
     on_stream_timeout = None
