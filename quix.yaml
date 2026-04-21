@@ -19,9 +19,8 @@ deployments:
         value: year,month,day
       - name: CATALOG_AUTH_TOKEN
         secretKey: quix_lake_pat
-      - name: STREAM_FINISHED_CONFIG
-        inputType: FreeText
-        value: '[ {"key":"sensor-a","timeout_ms":10000,"func":"log_finished"}, {"key":"sensor-c","timeout_ms":10000,"func":"log_finished"}, {"key":"sensor-d","timeout_ms":10000,"func":"log_finished"} ]'
+      - name: STREAM_TIMEOUT_SECONDS
+        value: 5
     blobStorage:
       bind: true
   - name: Timeout Test Producer
