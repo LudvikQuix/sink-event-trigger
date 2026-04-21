@@ -4,10 +4,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
 
-WORKDIR /app
+WORKDIR /app/timeout-test-producer
 
 COPY --from=git /project .
 
 RUN find . -name "requirements.txt" | xargs -I {} pip install --no-cache-dir -r {}
 
-ENTRYPOINT ["python3", "timeout-test-producer/main.py"]
+ENTRYPOINT ["python3", "main.py"]
