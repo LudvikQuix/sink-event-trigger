@@ -52,6 +52,40 @@ def parse_hive_columns(columns_str: str) -> list:
     return [col.strip() for col in columns_str.split(",") if col.strip()]
 
 
+def parse_stream_finished_config(raw: str) -> dict:
+    """Parse STREAM_FINISHED_CONFIG JSON → {key: (timeout_ms, callback)}.
+
+    Empty/unset/whitespace → {} (disabled). Any error → SystemExit(1).
+    """
+    raw = (raw or "").strip() or "[]"
+    result: dict = {}
+    try:
+        entries = json.loads(raw)
+        if not isinstance(entries, list):
+            raise ValueError("must be a JSON array")
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise ValueError(f"[{i}] must be an object")
+            try:
+                key, timeout_ms, func_name = entry["key"], entry["timeout_ms"], entry["func"]
+            except KeyError as e:
+                raise ValueError(f"[{i}] missing field {e.args[0]!r}") from None
+            if not isinstance(key, str) or not key:
+                raise ValueError(f"[{i}].key must be non-empty string")
+            # bool is an int subclass — reject so `true` doesn't become 1 ms
+            if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or timeout_ms <= 0:
+                raise ValueError(f"[{i}].timeout_ms must be positive int")
+            if func_name not in CALLBACKS:
+                raise ValueError(f"[{i}].func={func_name!r} not in {sorted(CALLBACKS)}")
+            if key in result:
+                raise ValueError(f"duplicate key {key!r}")
+            result[key] = (timeout_ms, CALLBACKS[func_name])
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("Invalid STREAM_FINISHED_CONFIG: %s", e)
+        raise SystemExit(1)
+    return result
+
+
 # Initialize Quix Streams Application
 app = Application(
     consumer_group=os.getenv("CONSUMER_GROUP", "s3_direct_sink_v1.0"),
@@ -68,63 +102,7 @@ table_name = os.getenv("TABLE_NAME") or os.environ["input"]
 # Workspace ID (automatically injected by Quix platform)
 workspace_id = os.getenv("Quix__Workspace__Id", "")
 
-# Parse STREAM_FINISHED_CONFIG — a JSON array of
-#   {"key": <str>, "timeout_ms": <int>, "func": <str>}
-# that resolves each func name against CALLBACKS. Empty / unset / whitespace-only
-# → feature disabled (sink treats {} as "disabled" per spec §6.1). Any validation
-# error is surfaced as a single ERROR log and SystemExit(1) so the
-# container fails loud at startup rather than silently dropping tracking.
-raw_stream_finished_config = os.environ.get("STREAM_FINISHED_CONFIG", "").strip() or "[]"
-stream_finished: dict = {}
-try:
-    entries = json.loads(raw_stream_finished_config)
-    if not isinstance(entries, list):
-        raise ValueError(
-            "STREAM_FINISHED_CONFIG must be a JSON array; got "
-            f"{type(entries).__name__}"
-        )
-    for i, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG[{i}] must be a JSON object"
-            )
-        try:
-            key = entry["key"]
-            timeout_ms = entry["timeout_ms"]
-            func_name = entry["func"]
-        except KeyError as e:
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG[{i}] is missing required field "
-                f"{e.args[0]!r} (expected keys: 'key', 'timeout_ms', 'func')"
-            ) from None
-        if not isinstance(key, str) or not key:
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG[{i}].key must be a non-empty string"
-            )
-        # NB: ``bool`` is an ``int`` subclass in Python; reject explicitly so
-        # a stray ``"timeout_ms": true`` does not silently become 1 ms.
-        if (
-            not isinstance(timeout_ms, int)
-            or isinstance(timeout_ms, bool)
-            or timeout_ms <= 0
-        ):
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG[{i}].timeout_ms must be a positive "
-                f"int (got {timeout_ms!r})"
-            )
-        if func_name not in CALLBACKS:
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG[{i}].func={func_name!r} is not a "
-                f"registered callback. Available: {sorted(CALLBACKS)}"
-            )
-        if key in stream_finished:
-            raise ValueError(
-                f"STREAM_FINISHED_CONFIG contains duplicate key {key!r}"
-            )
-        stream_finished[key] = (timeout_ms, CALLBACKS[func_name])
-except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-    logger.error("Invalid STREAM_FINISHED_CONFIG: %s", e)
-    raise SystemExit(1)
+stream_finished = parse_stream_finished_config(os.environ.get("STREAM_FINISHED_CONFIG", ""))
 
 logger.info(
     "Stream-finished tracking: %d key(s) configured", len(stream_finished)
