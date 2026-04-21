@@ -97,42 +97,44 @@ def main() -> None:
     )
 
     with app.get_producer() as producer:
-        # --- Initial warm-up: start all 4 streams together ---
+        # Phase 1: Initial warm-up — start all 4 streams simultaneously
+        logger.info(
+            "PHASE 1: WARM-UP — all 4 streams starting, running for %.1f s",
+            WARM_UP_MS / 1000,
+        )
         threads, stop_events = _start_all(producer, topic)
-        logger.info("WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
         time.sleep(WARM_UP_MS / 1000)
 
-        while True:
-            # Step 3: Stop ALL 4 streams simultaneously
-            _stop_all(stop_events, threads)
+        # Phase 2: Stop all — silence begins
+        logger.info("PHASE 2: STOP ALL — silence begins")
+        _stop_all(stop_events, threads)
 
-            # Step 4: Wait silence — sink timeout detection fires for every key
+        while True:
+            # Phase 3: Silence — wait long enough for timeout to fire
             logger.info(
-                "SILENCE START — waiting %.1f s (expect timeout events for all 4 keys)",
+                "PHASE 3: SILENCE — waiting %.1f s (expect timeout events for all 4 keys)",
                 SILENCE_DURATION_MS / 1000,
             )
             time.sleep(SILENCE_DURATION_MS / 1000)
-            logger.info("SILENCE END")
+            logger.info("PHASE 3: SILENCE END")
 
-            # Step 5: Resume ALL 4 streams simultaneously
+            # Phase 4: Resume — start all 4 streams simultaneously
+            logger.info(
+                "PHASE 4: RESUME — all 4 streams starting, running for %.1f s",
+                WARM_UP_MS / 1000,
+            )
             threads, stop_events = _start_all(producer, topic)
-
-            # Step 6: Another warm-up so messages are visible after resume
-            logger.info("RESUME WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
             time.sleep(WARM_UP_MS / 1000)
 
-            # Step 7: Stop all again
+            # Phase 5: Stop all
+            logger.info("PHASE 5: STOP ALL")
             _stop_all(stop_events, threads)
 
             if not LOOP:
-                logger.info("LOOP=false — exiting after one stop/resume cycle")
+                logger.info("LOOP=false — exiting after one send→silence→send period")
                 break
 
-            logger.info("LOOP=true — restarting streams for next cycle")
-            # Restart for next loop iteration
-            threads, stop_events = _start_all(producer, topic)
-            logger.info("LOOP WARM-UP — all 4 streams running for %.1f s", WARM_UP_MS / 1000)
-            time.sleep(WARM_UP_MS / 1000)
+            logger.info("LOOP=true — cycling back to silence phase")
 
 
 if __name__ == "__main__":
