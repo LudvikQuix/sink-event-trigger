@@ -19,8 +19,6 @@ deployments:
         value: year,month,day
       - name: CATALOG_AUTH_TOKEN
         secretKey: quix_lake_pat
-      - name: STREAM_FINISHED_CONFIG
-        value: ''
     blobStorage:
       bind: true
   - name: Timeout Test Producer
@@ -31,7 +29,7 @@ deployments:
       cpu: 200
       memory: 200
       replicas: 1
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: output
         value: timeouted-data
