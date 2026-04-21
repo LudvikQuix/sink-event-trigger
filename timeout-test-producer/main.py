@@ -57,16 +57,12 @@ def _pause(label: str, duration_ms: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Scenario 2 — sensor-b (steady, background daemon thread)
+# Steady-stream helper — used by sensor-b (unregistered) and sensor-d (registered-but-alive)
 # ---------------------------------------------------------------------------
-_stop_steady = threading.Event()
-
-
-def _run_steady(producer, topic) -> None:
-    stream_id = "sensor-b"
+def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) -> None:
     logger.info("[%s] STEADY START — interval %.1f s", stream_id, STEADY_INTERVAL_MS / 1000)
     i = 0
-    while not _stop_steady.is_set():
+    while not stop_event.is_set():
         payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_id}
         producer.produce(
             topic=topic,
@@ -75,7 +71,7 @@ def _run_steady(producer, topic) -> None:
             timestamp=_now_ms(),
         )
         i += 1
-        _stop_steady.wait(STEADY_INTERVAL_MS / 1000)
+        stop_event.wait(STEADY_INTERVAL_MS / 1000)
     logger.info("[%s] STEADY STOP", stream_id)
 
 
@@ -126,15 +122,29 @@ def main() -> None:
         key_serializer="string",
     )
 
+    stop_b = threading.Event()
+    stop_d = threading.Event()
+
     with app.get_producer() as producer:
-        # Start steady background thread (scenario 2)
-        steady_thread = threading.Thread(
-            target=_run_steady, args=(producer, topic), daemon=True, name="steady-sensor-b"
+        # Scenario 2 — sensor-b (steady, NOT registered in consumer → no fire expected)
+        thread_b = threading.Thread(
+            target=_run_steady,
+            args=(producer, topic, "sensor-b", stop_b),
+            daemon=True,
+            name="steady-sensor-b",
         )
-        steady_thread.start()
+        # Scenario 4 — sensor-d (steady, REGISTERED in consumer → never fires because alive)
+        thread_d = threading.Thread(
+            target=_run_steady,
+            args=(producer, topic, "sensor-d", stop_d),
+            daemon=True,
+            name="steady-sensor-d",
+        )
+        thread_b.start()
+        thread_d.start()
 
         if LOOP:
-            logger.info("LOOP=true — running scenarios 1 & 3 in a loop")
+            logger.info("LOOP=true — running scenarios 1 & 3 in a loop; sensor-b and sensor-d run continuously")
             while True:
                 run_scenario_1(producer, topic)
                 run_scenario_3(producer, topic)
@@ -143,8 +153,9 @@ def main() -> None:
         else:
             run_scenario_1(producer, topic)
             run_scenario_3(producer, topic)
-            logger.info("ALL SCENARIOS COMPLETE — exiting")
-            _stop_steady.set()
+            logger.info("ALL SCENARIOS COMPLETE — stopping sensor-b and sensor-d")
+            stop_b.set()
+            stop_d.set()
 
 
 if __name__ == "__main__":

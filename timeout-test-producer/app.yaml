@@ -12,8 +12,8 @@ variables:
     required: false
   - name: COMMIT_INTERVAL_MS
     inputType: FreeText
-    description: Consumer commit interval (ms) — must match sink's commit_interval × 1000
-    defaultValue: "30000"
+    description: Consumer commit interval (ms) — must match sink's COMMIT_INTERVAL (seconds) × 1000. Sink default is now 5 s.
+    defaultValue: "5000"
     required: false
   - name: BURST_SIZE
     inputType: FreeText
