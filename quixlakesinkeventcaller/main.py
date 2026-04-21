@@ -89,7 +89,16 @@ if stream_timeout_topic_name:
         STREAM_TIMEOUT_TOPIC with the shape
         value={"stream": stream, "event": "timeout"} (spec §7.2).
         """
-        logger.info("Stream %s timed out after inactivity", stream)
+        # v5 diagnostic — loud log of exactly what the sink handed to the
+        # callback. Under v5 this should be the input-topic name (e.g.
+        # "timeouted-data"), not a per-record key (e.g. "sensor-a"). If the
+        # log shows a per-record key the deployed image is pre-v5.
+        logger.info(
+            "on_stream_timeout v5 received stream=%r (expect input-topic "
+            "name, NOT a per-record key). Producing to topic=%r.",
+            stream,
+            stream_timeout_topic.name,
+        )
         side_producer.produce(
             topic=stream_timeout_topic.name,
             key=stream.encode() if isinstance(stream, str) else stream,
