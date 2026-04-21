@@ -31,13 +31,12 @@ deployments:
       cpu: 200
       memory: 200
       replicas: 1
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: output
         value: timeouted-data
 
 # This section describes the Topics of the data pipeline
 topics:
-  - name: tsbs_data_transformed
   - name: timeouted-data
   - name: timeout-topic
