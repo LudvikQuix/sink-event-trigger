@@ -13,7 +13,7 @@ deployments:
     resources:
       cpu: 200
       memory: 500
-      replicas: 1
+      replicas: 2
     variables:
       - name: HIVE_COLUMNS
         value: year,month,day
