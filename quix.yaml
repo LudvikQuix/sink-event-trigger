@@ -44,3 +44,5 @@ deployments:
 topics:
   - name: timeout-event-topic2
   - name: timeouted-data
+    configuration:
+      partitions: 2
