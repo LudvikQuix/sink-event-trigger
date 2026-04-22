@@ -52,10 +52,9 @@ variables:
     required: false
     defaultValue: '60'
   - name: STREAM_TIMEOUT_TOPIC
-    inputType: OutputTopic
-    description: 'Kafka topic that receives one message per silent message key, shaped as value={"ts_ms": <int>, "stream": <message-key>, "event": "stream_timeout"} with the Kafka record key set to the UTF-8 bytes of the message key. Defaults to "timeout-topic"; set to an empty string to disable the feature.'
-    required: false
-    defaultValue: timeout-topic
+    inputType: FreeText
+    multiline: false
+    description: 'Kafka topic that receives one message per whole-stream silent detection, shaped as value={"stream": <input-topic-name>, "event": "timeout"}. Defaults to "timeout-topic"; set to an empty string to disable the feature.'
   - name: KAFKA_KEY_DESERIALIZER
     inputType: FreeText
     description: The key deserializer to use
