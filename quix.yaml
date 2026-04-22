@@ -19,8 +19,12 @@ deployments:
         value: year,month,day
       - name: CATALOG_AUTH_TOKEN
         secretKey: quix_lake_pat
+      - name: COMMIT_INTERVAL
+        value: 1
       - name: STREAM_TIMEOUT_SECONDS
         value: 5
+      - name: STREAM_TIMEOUT_TOPIC
+        value: timeout-event-topic
     blobStorage:
       bind: true
   - name: Timeout Test Producer
