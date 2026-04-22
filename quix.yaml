@@ -42,7 +42,6 @@ deployments:
 
 # This section describes the Topics of the data pipeline
 topics:
-  - name: timeout-event-topic2
   - name: timeouted-data
     configuration:
       partitions: 2
