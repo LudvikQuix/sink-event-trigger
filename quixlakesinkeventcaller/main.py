@@ -117,7 +117,7 @@ if stream_timeout_topic_name:
         """
         logger.info("Stream %s timed out after inactivity", stream)
         side_producer.produce(
-            topic=stream_timeout_topic,
+            topic=stream_timeout_topic.name,
             key=stream.encode() if isinstance(stream, str) else stream,
             value=json.dumps({
                 "ts_ms": int(time.time() * 1000),
