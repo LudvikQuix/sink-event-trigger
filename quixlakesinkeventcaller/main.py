@@ -95,7 +95,7 @@ if stream_timeout_topic_name:
         key_serializer="bytes",
         value_serializer="bytes",
     )
-    logger.info("Stream timeouter is initialized", stream)
+    logger.info("Stream timeouter is initialized")
     def on_stream_timeout(stream: str) -> None:
         """Timeout handler for one silent Kafka message key.
 
