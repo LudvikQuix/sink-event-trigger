@@ -22,9 +22,9 @@ deployments:
       - name: COMMIT_INTERVAL
         value: 1
       - name: STREAM_TIMEOUT_SECONDS
-        value: 5
+        value: 2
       - name: STREAM_TIMEOUT_TOPIC
-        value: timeout-event-topic2
+        value: timeout-event-topic
     blobStorage:
       bind: true
   - name: Timeout Test Producer
@@ -35,7 +35,7 @@ deployments:
       cpu: 200
       memory: 200
       replicas: 1
-    desiredStatus: Running
+    desiredStatus: Stopped
     variables:
       - name: output
         value: timeouted-data
