@@ -35,7 +35,7 @@ deployments:
       cpu: 200
       memory: 200
       replicas: 1
-    desiredStatus: Stopped
+    desiredStatus: Running
     variables:
       - name: output
         value: timeouted-data
