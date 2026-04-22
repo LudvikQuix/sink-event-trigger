@@ -49,3 +49,4 @@ topics:
       retentionInMinutes: -1
       retentionInBytes: 104857600
   - name: timeout-event-topic
+  - name: timeout-event-topic2
