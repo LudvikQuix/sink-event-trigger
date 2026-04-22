@@ -48,14 +48,12 @@ variables:
     defaultValue: 5
   - name: STREAM_TIMEOUT_SECONDS
     inputType: FreeText
-    description: 'Silence threshold in seconds for whole-stream timeout detection. When the input stream is silent (no messages on any key) for at least this long, a timeout event is published to STREAM_TIMEOUT_TOPIC. Defaults to 60.'
-    required: false
-    defaultValue: '60'
+    description: Silence threshold in seconds for whole-stream timeout detection. When the input stream is silent (no messages on any key) for at least this long, a timeout event is published to STREAM_TIMEOUT_TOPIC. Defaults to 60.
+    defaultValue: 60
   - name: STREAM_TIMEOUT_TOPIC
-    inputType: OutputTopic
+    inputType: FreeText
+    multiline: false
     description: 'Kafka topic that receives one message per whole-stream silent detection, shaped as value={"stream": <input-topic-name>, "event": "timeout"}. Defaults to "timeout-topic"; set to an empty string to disable the feature.'
-    required: false
-    defaultValue: timeout-topic
   - name: KAFKA_KEY_DESERIALIZER
     inputType: FreeText
     description: The key deserializer to use
