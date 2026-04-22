@@ -46,3 +46,4 @@ topics:
   - name: timeouted-data
     configuration:
       partitions: 2
+  - name: timeout-event-topic
