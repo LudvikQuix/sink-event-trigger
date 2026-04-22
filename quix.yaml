@@ -43,3 +43,4 @@ deployments:
 # This section describes the Topics of the data pipeline
 topics:
   - name: timeout-event-topic
+  - name: timeouted-data
