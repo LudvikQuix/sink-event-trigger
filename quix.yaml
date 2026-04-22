@@ -40,6 +40,3 @@ deployments:
       - name: output
         value: timeouted-data
 
-# This section describes the Topics of the data pipeline
-topics:
-  - name: timeouted-data
