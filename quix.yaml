@@ -44,3 +44,4 @@ topics:
       replicationFactor: 1
       retentionInMinutes: -1
       retentionInBytes: 104857600
+  - name: timeout-topic
