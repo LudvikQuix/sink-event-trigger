@@ -25,3 +25,10 @@ Thumbs.db
 
 # Design docs / planning (not needed at Quix runtime)
 dev-planning/
+compose.local.yaml
+.secrets
+certificates/
+.quix.yaml.variables
+
+# scratch — agent working files (screenshots, experiments, drafts)
+.tmp/
