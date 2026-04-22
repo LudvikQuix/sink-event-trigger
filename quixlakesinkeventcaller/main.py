@@ -84,7 +84,17 @@ on_stream_timeout: Optional[Callable[[str], None]]
 
 if stream_timeout_topic_name:
     stream_timeout_ms = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "60")) * 1000
-    stream_timeout_topic = app.topic(stream_timeout_topic_name)
+    # Register the topic with the Application's topic manager. Under
+    # QuixTopicManager this fetches-or-creates the topic via the Quix API
+    # and rewrites `.name` to the workspace-prefixed broker name
+    # (`<workspace_id>-<name>`), which is what we must pass to the
+    # Producer.produce(topic=...) call below. Raw bytes serializers keep
+    # the hand-encoded key/value bytes flowing through unchanged.
+    stream_timeout_topic = app.topic(
+        stream_timeout_topic_name,
+        key_serializer="bytes",
+        value_serializer="bytes",
+    )
 
     def on_stream_timeout(stream: str) -> None:
         """Timeout handler for one silent Kafka message key.
@@ -96,9 +106,19 @@ if stream_timeout_topic_name:
             value = {"ts_ms": <wall-clock-ms>, "stream": <key>,
                      "event": "stream_timeout"}
         The Kafka record key is the UTF-8 bytes of ``stream``.
+
+        Fire-and-forget: this callback runs on the sink's flush thread
+        (which is the Application processing thread). Calling a blocking
+        ``side_producer.flush()`` here would stop the consumer from
+        polling for up to librdkafka's ``message.timeout.ms`` (~5 min
+        default), triggering a rebalance and offset-reset cascade. The
+        underlying producer polls in the background, so the message is
+        delivered asynchronously; we only need ``produce()``.
         """
         logger.info("Stream %s timed out after inactivity", stream)
         side_producer.produce(
+            # `stream_timeout_topic.name` is the broker-side, workspace-
+            # prefixed name assigned by app.topic() above.
             topic=stream_timeout_topic.name,
             key=stream.encode() if isinstance(stream, str) else stream,
             value=json.dumps({
@@ -107,7 +127,7 @@ if stream_timeout_topic_name:
                 "event": "stream_timeout",
             }).encode(),
         )
-        side_producer.flush()
+        # DO NOT call side_producer.flush() here — see docstring above.
 else:
     stream_timeout_ms = None
     on_stream_timeout = None
