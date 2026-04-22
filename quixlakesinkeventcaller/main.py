@@ -14,6 +14,7 @@ File paths follow the workspace-aware structure:
 
 import json
 import os
+import time
 import logging
 from typing import Optional, Callable
 
@@ -65,7 +66,11 @@ table_name = os.getenv("TABLE_NAME") or os.environ["input"]
 workspace_id = os.getenv("Quix__Workspace__Id", "")
 
 # ---------------------------------------------------------------------------
-# Stream-timeout wiring (spec §6.7)
+# Stream-timeout wiring (spec v6 §6.7)
+#
+# A "stream" is one Kafka message key; silence is tracked per key inside
+# the sink and the callback is invoked once per silent key. This callback
+# runs on the sink thread during flush().
 #
 # Both env vars have defaults, so the feature is ON by default:
 #   STREAM_TIMEOUT_SECONDS = 60
@@ -82,19 +87,25 @@ if stream_timeout_topic_name:
     stream_timeout_topic = app.topic(stream_timeout_topic_name)
 
     def on_stream_timeout(stream: str) -> None:
-        """Timeout handler for the whole input stream.
+        """Timeout handler for one silent Kafka message key.
 
-        The sink passes the stream designation (the input topic name it is
-        attached to) once the whole stream has been silent past the
-        threshold. Logs INFO and produces one Kafka message to
-        STREAM_TIMEOUT_TOPIC with the shape
-        value={"stream": stream, "event": "timeout"} (spec §7.2).
+        The sink passes the decoded message key (a str) once that key has
+        been silent past the threshold. Logs INFO and produces one Kafka
+        message to STREAM_TIMEOUT_TOPIC with the v6 payload shape
+        (spec §7.2):
+            value = {"ts_ms": <wall-clock-ms>, "stream": <key>,
+                     "event": "stream_timeout"}
+        The Kafka record key is the UTF-8 bytes of ``stream``.
         """
         logger.info("Stream %s timed out after inactivity", stream)
         side_producer.produce(
             topic=stream_timeout_topic.name,
             key=stream.encode() if isinstance(stream, str) else stream,
-            value=json.dumps({"stream": stream, "event": "timeout"}).encode(),
+            value=json.dumps({
+                "ts_ms": int(time.time() * 1000),
+                "stream": stream,
+                "event": "stream_timeout",
+            }).encode(),
         )
         side_producer.flush()
 else:
