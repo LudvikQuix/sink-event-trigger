@@ -117,9 +117,7 @@ if stream_timeout_topic_name:
         """
         logger.info("Stream %s timed out after inactivity", stream)
         side_producer.produce(
-            # `stream_timeout_topic.name` is the broker-side, workspace-
-            # prefixed name assigned by app.topic() above.
-            topic=stream_timeout_topic.name,
+            topic=stream_timeout_topic,
             key=stream.encode() if isinstance(stream, str) else stream,
             value=json.dumps({
                 "ts_ms": int(time.time() * 1000),
@@ -175,4 +173,8 @@ logger.info(f"  Storage path: {storage_path}/{table_name}")
 logger.info(f"  Partitioning: {hive_columns if hive_columns else 'none'}")
 
 if __name__ == "__main__":
-    app.run()
+    side_producer.__enter__()
+    try:
+        app.run()
+    finally:
+        side_producer.__exit__(None, None, None)
