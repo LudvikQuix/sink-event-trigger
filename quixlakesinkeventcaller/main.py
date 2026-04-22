@@ -12,8 +12,6 @@ File paths follow the workspace-aware structure:
     {workspaceId}/data-lake/time-series/{table_name}/...
 """
 
-
-
 import json
 import os
 import time
