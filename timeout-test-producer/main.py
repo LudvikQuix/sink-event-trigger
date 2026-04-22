@@ -26,11 +26,15 @@ STEADY_INTERVAL_MS = int(os.environ.get("STEADY_INTERVAL_MS", str(STREAM_FINISHE
 SAFETY_BUFFER_MS = int(os.environ.get("SAFETY_BUFFER_MS", "2000"))
 LOOP = os.environ.get("LOOP", "false").strip().lower() == "true"
 
+# Stagger window: total time over which keys stop one by one.
+# Default = STREAM_FINISHED_TIMEOUT_MS so each key stops ~one timeout-window after the previous.
+STAGGER_MS = int(os.environ.get("STAGGER_MS", str(STREAM_FINISHED_TIMEOUT_MS)))
+
 # Silence duration long enough to guarantee the sink fires its callback:
 #   stream_finished_timeout + commit_interval + safety_buffer
 SILENCE_DURATION_MS = STREAM_FINISHED_TIMEOUT_MS + COMMIT_INTERVAL_MS + SAFETY_BUFFER_MS
 
-# Warm-up: how long all streams run before stopping together
+# Warm-up: how long all streams run before the staggered stop begins
 WARM_UP_MS = int(os.environ.get("WARM_UP_MS", str(STREAM_FINISHED_TIMEOUT_MS // 2)))
 
 STREAM_IDS = ["sensor-a", "sensor-b", "sensor-c", "sensor-d"]
@@ -74,13 +78,38 @@ def _start_all(producer, topic) -> tuple[list[threading.Thread], list[threading.
 
 
 def _stop_all(stop_events: list[threading.Event], threads: list[threading.Thread]) -> None:
-    """Signal all streams to stop and wait for them to finish."""
+    """Signal all streams to stop simultaneously and wait for them to finish."""
     logger.info("ALL STREAMS STOPPING — setting stop events for: %s", STREAM_IDS)
     for ev in stop_events:
         ev.set()
     for t in threads:
         t.join()
     logger.info("ALL STREAMS STOPPED")
+
+
+def _stop_staggered(stop_events: list[threading.Event], threads: list[threading.Thread]) -> None:
+    """Stop streams one by one, spaced STAGGER_MS/len(STREAM_IDS) apart.
+
+    Each key goes silent at a different moment so the sink receives 4 timeout
+    events staggered in time rather than all at once.
+    """
+    stagger_interval_ms = STAGGER_MS / len(STREAM_IDS)
+    for i, (stream_id, ev, t) in enumerate(zip(STREAM_IDS, stop_events, threads)):
+        logger.info(
+            "PHASE 2: STAGGERED STOP — stopping [%s] (key %d/%d)",
+            stream_id,
+            i + 1,
+            len(STREAM_IDS),
+        )
+        ev.set()
+        t.join()
+        if i < len(STREAM_IDS) - 1:
+            logger.info(
+                "PHASE 2: STAGGERED STOP — waiting %.1f s before stopping next key",
+                stagger_interval_ms / 1000,
+            )
+            time.sleep(stagger_interval_ms / 1000)
+    logger.info("PHASE 2: STAGGERED STOP — all %d streams stopped", len(STREAM_IDS))
 
 
 # ---------------------------------------------------------------------------
@@ -105,14 +134,20 @@ def main() -> None:
         threads, stop_events = _start_all(producer, topic)
         time.sleep(WARM_UP_MS / 1000)
 
-        # Phase 2: Stop all — silence begins
-        logger.info("PHASE 2: STOP ALL — silence begins")
-        _stop_all(stop_events, threads)
+        # Phase 2: Staggered stop — each key goes silent at a different moment
+        logger.info(
+            "PHASE 2: STAGGERED STOP — stopping %d keys, %.1f s apart (stagger window %.1f s)",
+            len(STREAM_IDS),
+            STAGGER_MS / len(STREAM_IDS) / 1000,
+            STAGGER_MS / 1000,
+        )
+        _stop_staggered(stop_events, threads)
 
         while True:
-            # Phase 3: Silence — wait long enough for timeout to fire
+            # Phase 3: Silence — wait long enough for all 4 timeout events to fire
             logger.info(
-                "PHASE 3: SILENCE — waiting %.1f s (expect timeout events for all 4 keys)",
+                "PHASE 3: SILENCE — waiting %.1f s after last key stopped"
+                " (expect 4 staggered timeout events)",
                 SILENCE_DURATION_MS / 1000,
             )
             time.sleep(SILENCE_DURATION_MS / 1000)
@@ -120,14 +155,14 @@ def main() -> None:
 
             # Phase 4: Resume — start all 4 streams simultaneously
             logger.info(
-                "PHASE 4: RESUME — all 4 streams starting, running for %.1f s",
+                "PHASE 4: RESUME — all 4 streams starting simultaneously, running for %.1f s",
                 WARM_UP_MS / 1000,
             )
             threads, stop_events = _start_all(producer, topic)
             time.sleep(WARM_UP_MS / 1000)
 
-            # Phase 5: Stop all
-            logger.info("PHASE 5: STOP ALL")
+            # Phase 5: Stop all simultaneously (resume-cycle teardown)
+            logger.info("PHASE 5: STOP ALL — stopping all streams simultaneously")
             _stop_all(stop_events, threads)
 
             if not LOOP:
