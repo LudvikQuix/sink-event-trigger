@@ -47,8 +47,6 @@ topics:
   - name: timeouted-data
     configuration:
       partitions: 4
-      replicationFactor: 2
   - name: stream-timeout-events
     configuration:
       partitions: 2
-      replicationFactor: 2
