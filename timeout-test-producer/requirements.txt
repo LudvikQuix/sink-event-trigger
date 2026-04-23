@@ -1,4 +1,0 @@
-quixstreams>=3.0
-confluent_kafka
-pytest
-python-dotenv
