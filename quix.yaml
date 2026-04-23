@@ -43,3 +43,5 @@ deployments:
 # This section describes the Topics of the data pipeline
 topics:
   - name: timeouted-data
+    configuration:
+      partitions: 4
