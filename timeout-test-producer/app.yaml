@@ -1,0 +1,30 @@
+name: Timeout Test Producer
+language: python
+variables:
+  - name: output
+    inputType: OutputTopic
+    description: Topic to publish synthetic timeseries test data to
+    required: true
+  - name: SCENARIO
+    inputType: FreeText
+    description: "Test scenario to run (1-5)"
+    defaultValue: "3"
+    required: true
+  - name: BURST_SIZE
+    inputType: FreeText
+    description: Number of messages per burst
+    defaultValue: "10"
+    required: false
+  - name: BURST_INTERVAL_MS
+    inputType: FreeText
+    description: Delay between messages within a burst (ms)
+    defaultValue: "100"
+    required: false
+  - name: LOGLEVEL
+    inputType: FreeText
+    description: Python logging level (DEBUG, INFO, WARNING, ERROR)
+    defaultValue: "INFO"
+    required: false
+dockerfile: dockerfile
+runEntryPoint: main.py
+defaultFile: main.py
