@@ -1,9 +1,45 @@
+"""Timeout Test Producer
+
+Runs one of 5 test scenarios (SCENARIO env var, 1-5) to exercise the
+QuixLakeSinkEventCaller stream-timeout feature.  Each scenario produces data
+to the output topic and then exits — no looping.
+
+Fixed test parameters (may be overridden via env vars for experimentation):
+  COMMIT_INTERVAL_MS = 2000   (must match sink COMMIT_INTERVAL × 1000)
+  STREAM_TIMEOUT_SECONDS = 6  (must match sink STREAM_TIMEOUT_SECONDS)
+  NUM_STREAMS  = 4
+  BURST_SIZE   = 10
+  BURST_INTERVAL_MS = 100
+
+Scenarios
+---------
+1 – Burst all 4 streams, stop.  STREAM_TIMEOUT_TOPIC must be empty on sink.
+    → timeout topic should NOT be created.
+
+2 – Same bursts, but sink has STREAM_TIMEOUT_SECONDS=0 (saturates to
+    commit_interval + 1 s).
+    → 4 quick timeout events expected.
+
+3 – Simultaneous burst to all 4 streams, all stop together.
+    → 4 timeout events expected.
+
+4 – Serial stream end: each stream stops and waits long enough for its
+    timeout to fire before the next stream stops.
+    → 4 events with consecutive spacing ≥ STREAM_TIMEOUT_SECONDS + COMMIT_INTERVAL.
+
+5 – stream-1 stops first (timeout fires), wait 10 s, stream-1 restarts and
+    all 4 stop.
+    → 5 events total: stream-1 fires twice, streams 2-4 once each.
+"""
 import logging
 import os
 import threading
 import time
 
+from dotenv import load_dotenv
 from quixstreams import Application
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -18,26 +54,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-STREAM_FINISHED_TIMEOUT_MS = int(os.environ.get("STREAM_FINISHED_TIMEOUT_MS", "5000"))
-COMMIT_INTERVAL_MS = int(os.environ.get("COMMIT_INTERVAL_MS", "1000"))
-BURST_SIZE = int(os.environ.get("BURST_SIZE", "20"))
-BURST_INTERVAL_MS = int(os.environ.get("BURST_INTERVAL_MS", "200"))
-STEADY_INTERVAL_MS = int(os.environ.get("STEADY_INTERVAL_MS", str(STREAM_FINISHED_TIMEOUT_MS // 4)))
-SAFETY_BUFFER_MS = int(os.environ.get("SAFETY_BUFFER_MS", "2000"))
-LOOP = os.environ.get("LOOP", "false").strip().lower() == "true"
+COMMIT_INTERVAL_MS = int(os.environ.get("COMMIT_INTERVAL_MS", "2000"))
+STREAM_TIMEOUT_SECONDS = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "6"))
+NUM_STREAMS = int(os.environ.get("NUM_STREAMS", "4"))
+BURST_SIZE = int(os.environ.get("BURST_SIZE", "10"))
+BURST_INTERVAL_MS = int(os.environ.get("BURST_INTERVAL_MS", "100"))
+SCENARIO = int(os.environ.get("SCENARIO", "3"))
 
-# Stagger window: total time over which keys stop one by one.
-# Default = STREAM_FINISHED_TIMEOUT_MS so each key stops ~one timeout-window after the previous.
-STAGGER_MS = int(os.environ.get("STAGGER_MS", str(STREAM_FINISHED_TIMEOUT_MS)))
+# Minimum gap to guarantee the sink fires its timeout callback:
+#   STREAM_TIMEOUT_SECONDS + COMMIT_INTERVAL + 2 s safety buffer
+GAP_SECONDS = STREAM_TIMEOUT_SECONDS + COMMIT_INTERVAL_MS / 1000 + 2
 
-# Silence duration long enough to guarantee the sink fires its callback:
-#   stream_finished_timeout + commit_interval + safety_buffer
-SILENCE_DURATION_MS = STREAM_FINISHED_TIMEOUT_MS + COMMIT_INTERVAL_MS + SAFETY_BUFFER_MS
-
-# Warm-up: how long all streams run before the staggered stop begins
-WARM_UP_MS = int(os.environ.get("WARM_UP_MS", str(STREAM_FINISHED_TIMEOUT_MS // 2)))
-
-STREAM_IDS = ["sensor-a", "sensor-b", "sensor-c", "sensor-d"]
+STREAM_KEYS = [f"stream-{i}" for i in range(1, NUM_STREAMS + 1)]
 
 
 def _now_ms() -> int:
@@ -45,75 +73,186 @@ def _now_ms() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Steady-stream helper
+# Produce helpers
 # ---------------------------------------------------------------------------
-def _run_steady(producer, topic, stream_id: str, stop_event: threading.Event) -> None:
-    logger.info("[%s] STEADY START — interval %.1f s", stream_id, STEADY_INTERVAL_MS / 1000)
+def send_burst(producer, topic, stream_key: str) -> None:
+    """Send BURST_SIZE messages to *stream_key* at BURST_INTERVAL_MS cadence."""
+    logger.info("[%s] Sending burst of %d messages", stream_key, BURST_SIZE)
+    for i in range(BURST_SIZE):
+        payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_key}
+        msg = topic.serialize(key=stream_key, value=payload)
+        producer.produce(topic=topic.name, value=msg.value, key=msg.key)
+        time.sleep(BURST_INTERVAL_MS / 1000)
+    logger.info("[%s] Burst complete", stream_key)
+
+
+def _run_steady(producer, topic, stream_key: str, stop_event: threading.Event) -> None:
+    """Continuously produce to *stream_key* until *stop_event* is set."""
+    logger.info("[%s] Steady stream started", stream_key)
     i = 0
     while not stop_event.is_set():
-        payload = {"ts_ms": _now_ms(), "value": float(i), "name": stream_id}
-        msg = topic.serialize(key=stream_id, value=payload)
+        payload = {"ts_ms": _now_ms(), "value": float(i), "stream": stream_key}
+        msg = topic.serialize(key=stream_key, value=payload)
         producer.produce(topic=topic.name, value=msg.value, key=msg.key)
         i += 1
-        stop_event.wait(STEADY_INTERVAL_MS / 1000)
-    logger.info("[%s] STEADY STOP", stream_id)
+        stop_event.wait(BURST_INTERVAL_MS / 1000)
+    logger.info("[%s] Steady stream stopped", stream_key)
 
 
-def _start_all(producer, topic) -> tuple[list[threading.Thread], list[threading.Event]]:
-    """Start all 4 steady-stream threads. Returns (threads, stop_events)."""
-    stop_events = [threading.Event() for _ in STREAM_IDS]
-    threads = [
-        threading.Thread(
+def _start_steady_threads(
+    producer, topic
+) -> tuple[dict[str, threading.Thread], dict[str, threading.Event]]:
+    """Start one steady-stream thread per STREAM_KEYS entry."""
+    stop_events: dict[str, threading.Event] = {k: threading.Event() for k in STREAM_KEYS}
+    threads: dict[str, threading.Thread] = {
+        k: threading.Thread(
             target=_run_steady,
-            args=(producer, topic, stream_id, stop_event),
+            args=(producer, topic, k, stop_events[k]),
             daemon=True,
-            name=f"steady-{stream_id}",
+            name=f"steady-{k}",
         )
-        for stream_id, stop_event in zip(STREAM_IDS, stop_events)
-    ]
-    for t in threads:
+        for k in STREAM_KEYS
+    }
+    for t in threads.values():
         t.start()
-    logger.info("ALL STREAMS STARTED: %s", STREAM_IDS)
+    logger.info("Steady streams started for: %s", STREAM_KEYS)
     return threads, stop_events
 
 
-def _stop_all(stop_events: list[threading.Event], threads: list[threading.Thread]) -> None:
-    """Signal all streams to stop simultaneously and wait for them to finish."""
-    logger.info("ALL STREAMS STOPPING — setting stop events for: %s", STREAM_IDS)
-    for ev in stop_events:
-        ev.set()
-    for t in threads:
-        t.join()
-    logger.info("ALL STREAMS STOPPED")
-
-
-def _stop_staggered(stop_events: list[threading.Event], threads: list[threading.Thread]) -> None:
-    """Stop streams one by one, spaced STAGGER_MS/len(STREAM_IDS) apart.
-
-    Each key goes silent at a different moment so the sink receives 4 timeout
-    events staggered in time rather than all at once.
-    """
-    stagger_interval_ms = STAGGER_MS / len(STREAM_IDS)
-    for i, (stream_id, ev, t) in enumerate(zip(STREAM_IDS, stop_events, threads)):
-        logger.info(
-            "PHASE 2: STAGGERED STOP — stopping [%s] (key %d/%d)",
-            stream_id,
-            i + 1,
-            len(STREAM_IDS),
-        )
-        ev.set()
-        t.join()
-        if i < len(STREAM_IDS) - 1:
-            logger.info(
-                "PHASE 2: STAGGERED STOP — waiting %.1f s before stopping next key",
-                stagger_interval_ms / 1000,
-            )
-            time.sleep(stagger_interval_ms / 1000)
-    logger.info("PHASE 2: STAGGERED STOP — all %d streams stopped", len(STREAM_IDS))
+def _stop_stream(key: str, threads: dict, stop_events: dict) -> None:
+    stop_events[key].set()
+    threads[key].join()
+    logger.info("[%s] Stopped", key)
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Scenarios
+# ---------------------------------------------------------------------------
+def _scenario_1(producer, topic) -> None:
+    """Burst all 4 streams then stop. Timeout topic feature is OFF on the sink.
+
+    Expected: topic 'stream-timeout-events' should NOT be created.
+    """
+    logger.info("SCENARIO 1: Burst all streams — STREAM_TIMEOUT_TOPIC='' on sink → no events.")
+    for key in STREAM_KEYS:
+        send_burst(producer, topic, key)
+    logger.info("SCENARIO 1: Done — timeout feature OFF, expect zero timeout events.")
+
+
+def _scenario_2(producer, topic) -> None:
+    """Burst all 4 streams. Sink has STREAM_TIMEOUT_SECONDS=0 (saturates to commit+1 s).
+
+    Expected: 4 timeout events arrive within (COMMIT_INTERVAL + 1 + buffer) seconds.
+    """
+    logger.info(
+        "SCENARIO 2: Burst all streams — sink STREAM_TIMEOUT_SECONDS=0 saturates to "
+        "commit_interval+1. Expect 4 quick timeout events."
+    )
+    for key in STREAM_KEYS:
+        send_burst(producer, topic, key)
+    logger.info("SCENARIO 2: Done — expect 4 events quickly.")
+
+
+def _scenario_3(producer, topic) -> None:
+    """Simultaneous burst to all 4 streams; all stop at the same moment.
+
+    Expected: 1 timeout event per stream = 4 events total.
+    """
+    logger.info("SCENARIO 3: Simultaneous burst → simultaneous stop. Expect 4 timeout events.")
+
+    def _burst(key: str) -> None:
+        for i in range(BURST_SIZE):
+            payload = {"ts_ms": _now_ms(), "value": float(i), "stream": key}
+            msg = topic.serialize(key=key, value=payload)
+            producer.produce(topic=topic.name, value=msg.value, key=msg.key)
+            time.sleep(BURST_INTERVAL_MS / 1000)
+        logger.info("[%s] Simultaneous burst complete", key)
+
+    threads = [
+        threading.Thread(target=_burst, args=(k,), daemon=True, name=f"burst-{k}")
+        for k in STREAM_KEYS
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    logger.info("SCENARIO 3: All bursts finished simultaneously. Expect 4 events.")
+
+
+def _scenario_4(producer, topic) -> None:
+    """Serial stream end: burst stream-N, wait GAP_SECONDS, repeat for N+1 … 4.
+
+    Gap = STREAM_TIMEOUT_SECONDS + COMMIT_INTERVAL + 2 s so each timeout fires
+    before the next stream ends.
+
+    Expected: 4 events whose consecutive timestamps differ by ≥ STREAM_TIMEOUT_SECONDS
+              + COMMIT_INTERVAL seconds.
+    """
+    logger.info(
+        "SCENARIO 4: Serial stream end with %.1f s gap between each. Expect 4 spaced events.",
+        GAP_SECONDS,
+    )
+    for key in STREAM_KEYS:
+        send_burst(producer, topic, key)
+        logger.info(
+            "[%s] Burst done — waiting %.1f s before next stream ends", key, GAP_SECONDS
+        )
+        time.sleep(GAP_SECONDS)
+    logger.info("SCENARIO 4: Done. Expect 4 events spaced ~%.1f s apart.", GAP_SECONDS)
+
+
+def _scenario_5(producer, topic) -> None:
+    """stream-1 stops first, times out, restarts, all 4 stop.
+
+    Sequence:
+      1. Start steady streams for all 4 keys.
+      2. Stop stream-1 → wait GAP_SECONDS for its timeout to fire.
+      3. Wait 10 more seconds (streams 2-4 still active).
+      4. Send a burst to stream-1 (it restarts).
+      5. Stop streams 2-4.
+
+    Expected: 5 events — stream-1 fires twice, streams 2-4 once each.
+    """
+    logger.info(
+        "SCENARIO 5: stream-1 stops first (timeout fires), 10 s pause, "
+        "stream-1 restarts, all 4 stop. Expect 5 timeout events."
+    )
+
+    threads, stop_events = _start_steady_threads(producer, topic)
+
+    # Let all streams warm up briefly
+    warm_up = BURST_INTERVAL_MS * BURST_SIZE / 1000
+    logger.info("SCENARIO 5 step 1: Warm-up %.1f s with all 4 streams.", warm_up)
+    time.sleep(warm_up)
+
+    # Step 2: stop stream-1
+    logger.info(
+        "SCENARIO 5 step 2: Stopping stream-1 — waiting %.1f s for its timeout.",
+        GAP_SECONDS,
+    )
+    _stop_stream("stream-1", threads, stop_events)
+    time.sleep(GAP_SECONDS)
+
+    # Step 3: extra wait
+    logger.info("SCENARIO 5 step 3: Waiting 10 more seconds (streams 2-4 still active).")
+    time.sleep(10)
+
+    # Step 4: restart stream-1
+    logger.info("SCENARIO 5 step 4: Sending second burst to stream-1.")
+    send_burst(producer, topic, "stream-1")
+
+    # Step 5: stop remaining streams
+    logger.info("SCENARIO 5 step 5: Stopping streams 2-4.")
+    for key in STREAM_KEYS[1:]:
+        _stop_stream(key, threads, stop_events)
+
+    logger.info(
+        "SCENARIO 5: All streams stopped. Expect 5 total events (stream-1 × 2, others × 1)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
 # ---------------------------------------------------------------------------
 def main() -> None:
     output_topic_name = os.environ["output"]
@@ -125,51 +264,32 @@ def main() -> None:
         key_serializer="string",
     )
 
+    logger.info(
+        "=== SCENARIO %d | STREAM_TIMEOUT_SECONDS=%d COMMIT_INTERVAL_MS=%d "
+        "BURST_SIZE=%d BURST_INTERVAL_MS=%d ===",
+        SCENARIO,
+        STREAM_TIMEOUT_SECONDS,
+        COMMIT_INTERVAL_MS,
+        BURST_SIZE,
+        BURST_INTERVAL_MS,
+    )
+
+    _dispatch = {
+        1: _scenario_1,
+        2: _scenario_2,
+        3: _scenario_3,
+        4: _scenario_4,
+        5: _scenario_5,
+    }
+
     with app.get_producer() as producer:
-        # Phase 1: Initial warm-up — start all 4 streams simultaneously
-        logger.info(
-            "PHASE 1: WARM-UP — all 4 streams starting, running for %.1f s",
-            WARM_UP_MS / 1000,
-        )
-        threads, stop_events = _start_all(producer, topic)
-        time.sleep(WARM_UP_MS / 1000)
+        fn = _dispatch.get(SCENARIO)
+        if fn is None:
+            logger.error("Unknown SCENARIO=%d — valid values are 1-5", SCENARIO)
+            raise SystemExit(1)
+        fn(producer, topic)
 
-        # Phase 2: Staggered stop — each key goes silent at a different moment
-        logger.info(
-            "PHASE 2: STAGGERED STOP — stopping %d keys, %.1f s apart (stagger window %.1f s)",
-            len(STREAM_IDS),
-            STAGGER_MS / len(STREAM_IDS) / 1000,
-            STAGGER_MS / 1000,
-        )
-        _stop_staggered(stop_events, threads)
-
-        while True:
-            # Phase 3: Silence — wait long enough for all 4 timeout events to fire
-            logger.info(
-                "PHASE 3: SILENCE — waiting %.1f s after last key stopped"
-                " (expect 4 staggered timeout events)",
-                SILENCE_DURATION_MS / 1000,
-            )
-            time.sleep(SILENCE_DURATION_MS / 1000)
-            logger.info("PHASE 3: SILENCE END")
-
-            # Phase 4: Resume — start all 4 streams simultaneously
-            logger.info(
-                "PHASE 4: RESUME — all 4 streams starting simultaneously, running for %.1f s",
-                WARM_UP_MS / 1000,
-            )
-            threads, stop_events = _start_all(producer, topic)
-            time.sleep(WARM_UP_MS / 1000)
-
-            # Phase 5: Stop all simultaneously (resume-cycle teardown)
-            logger.info("PHASE 5: STOP ALL — stopping all streams simultaneously")
-            _stop_all(stop_events, threads)
-
-            if not LOOP:
-                logger.info("LOOP=false — exiting after one send→silence→send period")
-                break
-
-            logger.info("LOOP=true — cycling back to silence phase")
+    logger.info("=== SCENARIO %d COMPLETE — exiting ===", SCENARIO)
 
 
 if __name__ == "__main__":

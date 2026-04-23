@@ -1,44 +1,25 @@
 name: Timeout Test Producer
 language: python
+deploymentType: Job
 variables:
   - name: output
     inputType: OutputTopic
     description: Topic to publish synthetic timeseries test data to
     required: true
-  - name: STREAM_FINISHED_TIMEOUT_MS
+  - name: SCENARIO
     inputType: FreeText
-    description: Silence duration (ms) after which the sink fires on_stream_finished
-    defaultValue: "5000"
-    required: false
-  - name: COMMIT_INTERVAL_MS
-    inputType: FreeText
-    description: Consumer commit interval (ms) — must match sink's COMMIT_INTERVAL (seconds) × 1000. Sink default is now 5 s.
-    defaultValue: "1000"
-    required: false
+    description: "Test scenario to run (1-5)"
+    defaultValue: "3"
+    required: true
   - name: BURST_SIZE
     inputType: FreeText
     description: Number of messages per burst
-    defaultValue: "20"
+    defaultValue: "10"
     required: false
   - name: BURST_INTERVAL_MS
     inputType: FreeText
     description: Delay between messages within a burst (ms)
-    defaultValue: "200"
-    required: false
-  - name: STEADY_INTERVAL_MS
-    inputType: FreeText
-    description: Publish interval for sensor-b steady stream (ms)
-    defaultValue: "2500"
-    required: false
-  - name: SAFETY_BUFFER_MS
-    inputType: FreeText
-    description: Extra buffer added on top of timeout+commit when computing silence duration (ms)
-    defaultValue: "2000"
-    required: false
-  - name: LOOP
-    inputType: FreeText
-    description: Set to "true" to repeat scenarios 1 and 3 forever
-    defaultValue: "false"
+    defaultValue: "100"
     required: false
   - name: LOGLEVEL
     inputType: FreeText

@@ -20,17 +20,17 @@ deployments:
       - name: CATALOG_AUTH_TOKEN
         secretKey: quix_lake_pat
       - name: COMMIT_INTERVAL
-        value: 1
+        value: "2"
       - name: STREAM_TIMEOUT_SECONDS
-        value: 2
+        value: "6"
       - name: STREAM_TIMEOUT_TOPIC
-        value: ''
+        value: stream-timeout-events
     blobStorage:
       bind: true
   - name: Timeout Test Producer
     application: timeout-test-producer
     version: latest
-    deploymentType: Service
+    deploymentType: Job
     resources:
       cpu: 200
       memory: 200
@@ -39,9 +39,15 @@ deployments:
     variables:
       - name: output
         value: timeouted-data
+      - name: SCENARIO
+        value: "3"
 
 # This section describes the Topics of the data pipeline
 topics:
   - name: timeouted-data
     configuration:
       partitions: 4
+  - name: stream-timeout-events
+    configuration:
+      partitions: 2
+      replicationFactor: 2
