@@ -104,7 +104,6 @@ if stream_timeout_topic_name:
         key_serializer="bytes",
         value_serializer="bytes",
     )
-    logger.info("Stream timeouter is initialized")
     def on_stream_timeout(stream: str) -> None:
         """Timeout handler for one silent Kafka message key.
 
@@ -164,8 +163,8 @@ blob_sink = QuixTSDataLakeSink(
     max_workers=int(os.getenv("MAX_WRITE_WORKERS", "10")),
     stream_timeout_ms=stream_timeout_ms,
     on_stream_timeout=on_stream_timeout,
-    on_client_connect_success=lambda: print("CONNECTED!"),
-    on_client_connect_failure=lambda e: print(f"ERROR! {e}"),
+    on_client_connect_success=lambda: logger.info("Kafka client connected"),
+    on_client_connect_failure=lambda e: logger.error("Kafka client connect failed: %s", e),
 )
 
 # Create streaming dataframe and attach sink

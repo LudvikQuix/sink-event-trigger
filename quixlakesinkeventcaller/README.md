@@ -74,10 +74,62 @@ Then either:
   *Default*: `1000`
 
 - **`COMMIT_INTERVAL`**: Kafka commit interval in seconds
-  *Default*: `30`
+  *Default*: `5`
 
 - **`MAX_WRITE_WORKERS`**: How many files can be written in parallel to storage at once
   *Default*: `10`
+
+### Stream Silence Detection (Optional)
+
+When a Kafka message key stops producing for longer than `STREAM_TIMEOUT_SECONDS`, the deployment emits one event message to `STREAM_TIMEOUT_TOPIC`. One **stream** equals one Kafka message key: if `sensor-a` goes quiet while `sensor-b` continues, only `sensor-a` fires an event.
+
+The feature is **on by default** — both variables have defaults. To disable it, set `STREAM_TIMEOUT_TOPIC` to an empty string explicitly. Leaving the variable unset falls through to the `timeout-topic` default.
+
+- **`STREAM_TIMEOUT_TOPIC`**: Kafka topic name to produce timeout events to.
+  Set to `""` (empty string) to disable the feature entirely.
+  *Default*: `timeout-topic`
+
+- **`STREAM_TIMEOUT_SECONDS`**: How long a key must be silent before firing, in whole seconds. Must be a positive integer.
+  If the value supplied is less than `COMMIT_INTERVAL + 1`, it is automatically raised to `COMMIT_INTERVAL + 1` and a WARNING is logged at startup. With the default `COMMIT_INTERVAL=5`, the minimum effective value is `6`.
+  *Default*: `60`
+
+**Output message shape** (produced to `STREAM_TIMEOUT_TOPIC`):
+
+```
+Kafka record key:   <message key as raw UTF-8 bytes>
+Kafka record value: {"ts_ms": <wall-clock ms at fire>, "stream": "<message key>", "event": "stream_timeout"}
+```
+
+Example, for a key `sensor-a` timing out:
+
+```
+key:   sensor-a
+value: {"ts_ms": 1745311234567, "stream": "sensor-a", "event": "stream_timeout"}
+```
+
+**Minimum-threshold clamp.** `main.py` clamps `STREAM_TIMEOUT_SECONDS` to `max(configured_value, COMMIT_INTERVAL + 1)` at startup. This prevents configuring a timeout shorter than one commit cycle, which would produce erratic fire behaviour. The clamp applies only to what is passed into the sink; the env var value itself is not changed. A WARNING is logged when the clamp activates:
+
+```
+STREAM_TIMEOUT_SECONDS too low (3000 ms); saturating to commit_interval + 1 s (6000 ms)
+```
+
+**Fire latency.** The event does not fire at the exact moment the threshold expires. The sink checks for silent keys on a background timer (up to ~1 s tick) and again at every checkpoint commit. With the defaults (`STREAM_TIMEOUT_SECONDS=60`, `COMMIT_INTERVAL=5`), expect the event to arrive approximately 60–61 seconds after the last message on the silent key.
+
+**Startup log.** At startup, the deployment logs one of:
+
+```
+Stream-timeout tracking: enabled (60000 ms → topic 'timeout-topic')
+```
+
+or:
+
+```
+Stream-timeout tracking: disabled
+```
+
+If you see `disabled` when you expected the feature to be active, check that `STREAM_TIMEOUT_TOPIC` is not set to an empty string.
+
+**Restart behaviour.** Silence tracking is in-memory only. After a restart, the sink must receive at least one new message on a key before its silence window starts. A key that was already silent before the restart will not fire until it sends at least one message and goes silent again.
 
 ### Application Settings
 
