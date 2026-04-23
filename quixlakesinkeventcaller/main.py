@@ -48,10 +48,11 @@ def parse_hive_columns(columns_str: str) -> list:
 
 
 # Initialize Quix Streams Application
+commit_interval = int(os.getenv("COMMIT_INTERVAL", "5"))
 app = Application(
     consumer_group=os.getenv("CONSUMER_GROUP", "s3_direct_sink_v1.0"),
     auto_offset_reset=os.getenv("AUTO_OFFSET_RESET", "latest"),
-    commit_interval=int(os.getenv("COMMIT_INTERVAL", "5")),
+    commit_interval=commit_interval,
     commit_every=int(os.getenv("BATCH_SIZE", 1000))
 )
 
@@ -83,7 +84,15 @@ stream_timeout_ms: Optional[int]
 on_stream_timeout: Optional[Callable[[str], None]]
 
 if stream_timeout_topic_name:
+    _min_timeout_ms = (commit_interval + 1) * 1000
     stream_timeout_ms = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "60")) * 1000
+    if stream_timeout_ms < _min_timeout_ms:
+        logger.warning(
+            "STREAM_TIMEOUT_SECONDS too low (%d ms); saturating to commit_interval + 1 s (%d ms)",
+            stream_timeout_ms,
+            _min_timeout_ms,
+        )
+        stream_timeout_ms = _min_timeout_ms
     # Register the topic with the Application's topic manager. Under
     # QuixTopicManager this fetches-or-creates the topic via the Quix API
     # and rewrites `.name` to the workspace-prefixed broker name
