@@ -44,3 +44,4 @@ topics:
   - name: stream-timeout-events
     configuration:
       partitions: 2
+  - name: timeouted-data
