@@ -7,7 +7,7 @@ variables:
     required: true
   - name: SCENARIO
     inputType: FreeText
-    description: "Test scenario to run (1-5)"
+    description: "Test scenario to run (1-6)"
     defaultValue: "3"
     required: true
   - name: BURST_SIZE

@@ -1,6 +1,6 @@
 """Timeout Test Producer
 
-Runs one of 5 test scenarios (SCENARIO env var, 1-5) to exercise the
+Runs one of 6 test scenarios (SCENARIO env var, 1-6) to exercise the
 QuixLakeSinkEventCaller stream-timeout feature.  Each scenario produces data
 to the output topic and then exits — no looping.
 
@@ -30,6 +30,9 @@ Scenarios
 5 – stream-1 stops first (timeout fires), wait 10 s, stream-1 restarts and
     all 4 stop.
     → 5 events total: stream-1 fires twice, streams 2-4 once each.
+
+6 – Burst all 4 streams using bytes message keys (b"stream-1" … b"stream-4").
+    → 4 timeout events expected; sink must not crash on non-string keys.
 """
 import logging
 import os
@@ -251,14 +254,50 @@ def _scenario_5(producer, topic) -> None:
     )
 
 
+def _scenario_6(producer, topic) -> None:
+    """Burst all 4 streams using bytes keys instead of string keys.
+
+    Stream keys are the UTF-8 encoded bytes of the usual string keys
+    (e.g. b"stream-1", b"stream-2" …).
+
+    Expected: sink must handle bytes message keys without crashing —
+    4 timeout events expected, one per stream.
+    """
+    logger.info(
+        "SCENARIO 6: Burst all streams with bytes keys. Expect 4 timeout events."
+    )
+
+    bytes_topic = app_ref.topic(
+        name=topic.name,
+        value_serializer="json",
+        key_serializer="bytes",
+    )
+
+    for key in STREAM_KEYS:
+        bytes_key = key.encode("utf-8")
+        logger.info("[%s] Sending burst with bytes key %r", key, bytes_key)
+        for i in range(BURST_SIZE):
+            payload = {"ts_ms": _now_ms(), "value": float(i), "stream": key}
+            msg = bytes_topic.serialize(key=bytes_key, value=payload)
+            producer.produce(topic=bytes_topic.name, value=msg.value, key=msg.key)
+            time.sleep(BURST_INTERVAL_MS / 1000)
+        logger.info("[%s] Burst complete", key)
+
+    logger.info("SCENARIO 6: Done — expect 4 timeout events from bytes-keyed streams.")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+app_ref: Application | None = None
+
+
 def main() -> None:
+    global app_ref
     output_topic_name = os.environ["output"]
 
-    app = Application()
-    topic = app.topic(
+    app_ref = Application()
+    topic = app_ref.topic(
         name=output_topic_name,
         value_serializer="json",
         key_serializer="string",
@@ -280,12 +319,13 @@ def main() -> None:
         3: _scenario_3,
         4: _scenario_4,
         5: _scenario_5,
+        6: _scenario_6,
     }
 
-    with app.get_producer() as producer:
+    with app_ref.get_producer() as producer:
         fn = _dispatch.get(SCENARIO)
         if fn is None:
-            logger.error("Unknown SCENARIO=%d — valid values are 1-5", SCENARIO)
+            logger.error("Unknown SCENARIO=%d — valid values are 1-6", SCENARIO)
             raise SystemExit(1)
         fn(producer, topic)
 
