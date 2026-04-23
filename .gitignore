@@ -32,3 +32,8 @@ certificates/
 
 # scratch — agent working files (screenshots, experiments, drafts)
 .tmp/
+
+# sc-72221 integration tests live in the QuixStreams fork
+# (C:/repos/SinkEventUpdateQS/tests/integration/sc-72221/). Local copy here
+# is kept for convenience but must not be committed to this repo.
+tests/sc-72221/
