@@ -56,8 +56,6 @@ app = Application(
     commit_every=int(os.getenv("BATCH_SIZE", 1000))
 )
 
-side_producer = app.get_producer()
-
 # Parse configuration
 hive_columns = parse_hive_columns(os.getenv("HIVE_COLUMNS", ""))
 auto_discover = os.getenv("AUTO_DISCOVER", "true").lower() == "true"
@@ -82,8 +80,10 @@ workspace_id = os.getenv("Quix__Workspace__Id", "")
 stream_timeout_topic_name = os.environ.get("STREAM_TIMEOUT_TOPIC", "timeout-topic").strip()
 stream_timeout_ms: Optional[int]
 on_stream_timeout: Optional[Callable[[str], None]]
+side_producer = None
 
 if stream_timeout_topic_name:
+    side_producer = app.get_producer()
     _min_timeout_ms = (commit_interval + 1) * 1000
     stream_timeout_ms = int(os.environ.get("STREAM_TIMEOUT_SECONDS", "60")) * 1000
     if stream_timeout_ms < _min_timeout_ms:
@@ -181,8 +181,10 @@ logger.info(f"  Storage path: {storage_path}/{table_name}")
 logger.info(f"  Partitioning: {hive_columns if hive_columns else 'none'}")
 
 if __name__ == "__main__":
-    side_producer.__enter__()
+    if side_producer is not None:
+        side_producer.__enter__()
     try:
         app.run()
     finally:
-        side_producer.__exit__(None, None, None)
+        if side_producer is not None:
+            side_producer.__exit__(None, None, None)
