@@ -22,7 +22,7 @@ deployments:
       - name: COMMIT_INTERVAL
         value: 2
       - name: STREAM_TIMEOUT_SECONDS
-        value: 6
+        value: 1
       - name: STREAM_TIMEOUT_TOPIC
         value: ''
     blobStorage:
