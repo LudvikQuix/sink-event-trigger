@@ -27,7 +27,7 @@ deployments:
         value: stream-timeout-events
     blobStorage:
       bind: true
-  - name: Timeout Test Producer
+  - name: Timeout Producer Job
     application: timeout-test-producer
     version: latest
     deploymentType: Job
