@@ -1,6 +1,5 @@
 name: Timeout Test Producer
 language: python
-deploymentType: Job
 variables:
   - name: output
     inputType: OutputTopic
