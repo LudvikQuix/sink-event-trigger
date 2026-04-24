@@ -1,4 +1,4 @@
-# cache-bust: 2026-04-22-timer-thread2
+# force rebuild
 quixstreams[quixdatalake] @ git+https://github.com/quixio/quix-streams.git@feature/sc-72221/adding-timeout-based-trigger-in-quixlake-sink
 python-dotenv
 
