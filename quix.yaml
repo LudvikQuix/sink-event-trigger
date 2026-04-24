@@ -24,7 +24,7 @@ deployments:
       - name: STREAM_TIMEOUT_SECONDS
         value: 6
       - name: STREAM_TIMEOUT_TOPIC
-        value: timeout-time
+        value: ''
       - name: KAFKA_KEY_DESERIALIZER
         value: ''
     blobStorage:
