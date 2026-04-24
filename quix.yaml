@@ -24,7 +24,7 @@ deployments:
       - name: STREAM_TIMEOUT_SECONDS
         value: 6
       - name: STREAM_TIMEOUT_TOPIC
-        value: ''
+        value: timeout-topic
     blobStorage:
       bind: true
   - name: Timeout Test Producer
