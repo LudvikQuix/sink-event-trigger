@@ -107,14 +107,12 @@ if stream_timeout_topic_name:
     def on_stream_timeout(stream: Any) -> None:
         """Timeout handler for one silent Kafka message key.
 
-        The sink passes the raw message key (``bytes``/``str``/``int``/…)
-        once that key has been silent past the threshold. Logs INFO and
-        produces one Kafka message to STREAM_TIMEOUT_TOPIC with the v6
-        payload shape (spec §7.2):
-            value = {"ts_ms": <wall-clock-ms>, "stream": <key-as-str>,
-                     "event": "stream_timeout"}
-        The Kafka record key is the raw bytes of ``stream`` (pass-through
-        for bytes; UTF-8 encode of ``str(stream)`` otherwise).
+        Record shape:
+        - ``key``: raw ``stream`` bytes from Kafka, pass-through (unchanged).
+        - ``value``: JSON object with event metadata and a decoded-for-
+          JSON copy of the stream identifier:
+            {"ts_ms": <wall-clock-ms>, "stream": <key-as-str>,
+             "event": "stream_timeout"}
 
         Fire-and-forget: this callback runs on the sink's flush thread
         (which is the Application processing thread). Calling a blocking
@@ -125,15 +123,13 @@ if stream_timeout_topic_name:
         delivered asynchronously; we only need ``produce()``.
         """
         if isinstance(stream, bytes):
-            key_bytes = stream
             stream_str = stream.decode("utf-8", errors="replace")
         else:
             stream_str = str(stream)
-            key_bytes = stream_str.encode()
         logger.info("Stream %s timed out after inactivity", stream_str)
         side_producer.produce(
             topic=stream_timeout_topic.name,
-            key=key_bytes,
+            key=stream,
             value=json.dumps({
                 "ts_ms": int(time.time() * 1000),
                 "stream": stream_str,
