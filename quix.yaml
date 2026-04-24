@@ -41,3 +41,6 @@ deployments:
       - name: SCENARIO
         value: 6
 
+# This section describes the Topics of the data pipeline
+topics:
+  - name: timeouted-data
